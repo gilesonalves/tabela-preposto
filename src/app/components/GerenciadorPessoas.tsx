@@ -1,6 +1,6 @@
 "use client";
-import React, { useState, useMemo, useEffect } from "react";
-import { supabase } from "../lib/supabase"; // Certifique-se de que esse caminho está correto
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 type Pessoa = {
   id: number;
@@ -10,70 +10,69 @@ type Pessoa = {
   contato?: string;
 };
 
-export default function TabelaSupabase() {
+export default function GerenciadorPessoas() {
   const [pessoas, setPessoas] = useState<Pessoa[]>([]);
+  const [newPessoa, setNewPessoa] = useState({
+    nome: "",
+    cpf: "",
+    cargo: "",
+    contato: "",
+  });
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<Omit<Pessoa, "id">>({
+  const [editForm, setEditForm] = useState({
     nome: "",
     cpf: "",
     cargo: "",
     contato: "",
   });
 
-  const [newPessoa, setNewPessoa] = useState<Omit<Pessoa, "id">>({
-    nome: "",
-    cpf: "",
-    cargo: "",
-    contato: "",
-  });
-
-  const [searchTerm, setSearchTerm] = useState("");
-
-  // Carregar dados do Supabase ao iniciar
+  // Carregar dados ao iniciar
   useEffect(() => {
     async function carregarPessoas() {
       const { data, error } = await supabase.from("pessoas").select("*").order("nome");
       if (error) {
-        console.error("Erro ao carregar pessoas:", error.message);
+        console.error("Erro ao carregar:", error.message);
       } else {
-        setPessoas(data || []);
+        setPessoas(data);
       }
     }
 
     carregarPessoas();
   }, []);
 
-  const pessoasOrdenadas = useMemo(() => {
-    return [...pessoas]
-      .map((p) => ({
-        ...p,
-        nome: p.nome.toUpperCase(),
-        cpf: p.cpf.toUpperCase(),
-        cargo: p.cargo.toUpperCase(),
-        contato: p.contato?.toUpperCase() || "",
-      }))
-      .sort((a, b) => a.nome.localeCompare(b.nome));
-  }, [pessoas]);
+  // Adicionar nova pessoa
+  async function addPessoa() {
+    if (!newPessoa.nome.trim()) return;
 
-  const pessoasFiltradas = pessoasOrdenadas.filter(({ nome, cpf, cargo, contato }) => {
-    const termo = searchTerm.toUpperCase();
-    return nome.includes(termo) || cpf.includes(termo) || cargo.includes(termo) || contato.includes(termo);
-  });
+    const nova = {
+      nome: newPessoa.nome.trim(),
+      cpf: newPessoa.cpf.trim() || "*",
+      cargo: newPessoa.cargo.trim() || "*",
+      contato: newPessoa.contato.trim() || "*",
+    };
 
-  function startEditing(pessoa: Pessoa) {
-    setEditingId(pessoa.id);
+    const { data, error } = await supabase.from("pessoas").insert([nova]).select();
+
+    if (error) {
+      console.error("Erro ao adicionar:", error.message);
+    } else {
+      setPessoas([...pessoas, data[0]]);
+      setNewPessoa({ nome: "", cpf: "", cargo: "", contato: "" });
+    }
+  }
+
+  // Iniciar edição
+  function startEditing(p: Pessoa) {
+    setEditingId(p.id);
     setEditForm({
-      nome: pessoa.nome,
-      cpf: pessoa.cpf,
-      cargo: pessoa.cargo,
-      contato: pessoa.contato || "",
+      nome: p.nome,
+      cpf: p.cpf,
+      cargo: p.cargo,
+      contato: p.contato || "",
     });
   }
 
-  function cancelEditing() {
-    setEditingId(null);
-  }
-
+  // Salvar edição
   async function saveEditing() {
     if (editingId === null) return;
 
@@ -81,7 +80,7 @@ export default function TabelaSupabase() {
       nome: editForm.nome.trim(),
       cpf: editForm.cpf.trim() || "*",
       cargo: editForm.cargo.trim() || "*",
-      contato: (editForm.contato ?? "").trim() || "*",
+      contato: editForm.contato.trim() || "*",
     };
 
     const { error } = await supabase
@@ -90,216 +89,151 @@ export default function TabelaSupabase() {
       .eq("id", editingId);
 
     if (error) {
-      console.error("Erro ao salvar edição:", error.message);
+      console.error("Erro ao editar:", error.message);
     } else {
-      setPessoas((old) =>
-        old.map((p) => (p.id === editingId ? { ...p, ...atualizada } : p))
+      setPessoas((prev) =>
+        prev.map((p) => (p.id === editingId ? { ...p, ...atualizada } : p))
       );
       setEditingId(null);
     }
   }
 
-  function handleEditChange(field: keyof Omit<Pessoa, "id">, value: string) {
-    setEditForm((old) => ({ ...old, [field]: value }));
-  }
-
-  async function addPessoa() {
-    if (!newPessoa.nome.trim()) return;
-
-    const nova = {
-      nome: newPessoa.nome.trim(),
-      cpf: newPessoa.cpf.trim() || "*",
-      cargo: newPessoa.cargo.trim() || "*",
-      contato: (newPessoa.contato ?? "").trim() || "*",
-    };
-
-    const { data, error } = await supabase.from("pessoas").insert([nova]).select();
-    if (error) {
-      console.error("Erro ao adicionar pessoa:", error.message);
-    } else {
-      setPessoas((old) => [...old, data![0]]);
-      setNewPessoa({ nome: "", cpf: "", cargo: "", contato: "" });
-    }
-  }
-
+  // Excluir
   async function deletePessoa(id: number) {
     const pessoa = pessoas.find((p) => p.id === id);
-    if (!pessoa || !confirm(`Tem certeza que deseja excluir ${pessoa.nome}?`)) return;
+    if (!pessoa || !confirm(`Excluir ${pessoa.nome}?`)) return;
 
     const { error } = await supabase.from("pessoas").delete().eq("id", id);
+
     if (error) {
-      console.error("Erro ao excluir pessoa:", error.message);
+      console.error("Erro ao excluir:", error.message);
     } else {
-      setPessoas((old) => old.filter((p) => p.id !== id));
+      setPessoas(pessoas.filter((p) => p.id !== id));
     }
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-4">Gerenciador de Pessoas</h1>
+    <div className="p-4 max-w-4xl mx-auto">
+      <h2 className="text-xl font-bold mb-4">Gerenciador de Pessoas</h2>
 
-      <input
-        type="text"
-        placeholder="Pesquisar por nome, CPF, cargo ou contato"
-        value={searchTerm}
-        onChange={(e) => setSearchTerm(e.target.value)}
-        className="border px-3 py-2 mb-4 w-full rounded"
-      />
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        <input
+          className="border p-2"
+          placeholder="Nome"
+          value={newPessoa.nome}
+          onChange={(e) => setNewPessoa({ ...newPessoa, nome: e.target.value })}
+        />
+        <input
+          className="border p-2"
+          placeholder="CPF"
+          value={newPessoa.cpf}
+          onChange={(e) => setNewPessoa({ ...newPessoa, cpf: e.target.value })}
+        />
+        <input
+          className="border p-2"
+          placeholder="Cargo"
+          value={newPessoa.cargo}
+          onChange={(e) => setNewPessoa({ ...newPessoa, cargo: e.target.value })}
+        />
+        <input
+          className="border p-2"
+          placeholder="Contato"
+          value={newPessoa.contato}
+          onChange={(e) => setNewPessoa({ ...newPessoa, contato: e.target.value })}
+        />
+      </div>
 
-      <table className="w-full border-collapse border border-gray-300">
-        <thead>
+      <button
+        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 mb-4"
+        onClick={addPessoa}
+      >
+        Adicionar
+      </button>
+
+      <table className="w-full border text-sm">
+        <thead className="bg-gray-100">
           <tr>
-            <th className="border border-gray-300 px-4 py-2">#</th>
-            <th className="border border-gray-300 px-4 py-2">Nome</th>
-            <th className="border border-gray-300 px-4 py-2">CPF</th>
-            <th className="border border-gray-300 px-4 py-2">Cargo</th>
-            <th className="border border-gray-300 px-4 py-2">Contato</th>
-            <th className="border border-gray-300 px-4 py-2">Ações</th>
+            <th className="border p-2">Nome</th>
+            <th className="border p-2">CPF</th>
+            <th className="border p-2">Cargo</th>
+            <th className="border p-2">Contato</th>
+            <th className="border p-2">Ações</th>
           </tr>
         </thead>
         <tbody>
-          {pessoasFiltradas.length === 0 && (
-            <tr>
-              <td colSpan={6} className="text-center p-4">
-                Nenhuma pessoa encontrada.
-              </td>
-            </tr>
-          )}
-
-          {pessoasFiltradas.map(({ id, nome, cpf, cargo, contato }, index) => (
-            <tr key={id} className="hover:bg-white transition-colors hover:text-black">
-              <td className="border border-gray-300 px-4 py-2 text-center">{index + 1}</td>
-
-              <td className="border border-gray-300 px-4 py-2">
-                {editingId === id ? (
+          {pessoas.map((p) => (
+            <tr key={p.id}>
+              <td className="border p-2">
+                {editingId === p.id ? (
                   <input
-                    type="text"
                     value={editForm.nome}
-                    onChange={(e) => handleEditChange("nome", e.target.value)}
-                    className="w-full border px-2 py-1"
-                    autoFocus
+                    onChange={(e) => setEditForm({ ...editForm, nome: e.target.value })}
+                    className="w-full border p-1"
                   />
                 ) : (
-                  nome.toUpperCase()
+                  p.nome
                 )}
               </td>
-
-              <td className="border border-gray-300 px-4 py-2">
-                {editingId === id ? (
+              <td className="border p-2">
+                {editingId === p.id ? (
                   <input
-                    type="text"
                     value={editForm.cpf}
-                    onChange={(e) => handleEditChange("cpf", e.target.value)}
-                    className="w-full border px-2 py-1"
+                    onChange={(e) => setEditForm({ ...editForm, cpf: e.target.value })}
+                    className="w-full border p-1"
                   />
                 ) : (
-                  cpf.toUpperCase()
+                  p.cpf
                 )}
               </td>
-
-              <td className="border border-gray-300 px-4 py-2">
-                {editingId === id ? (
+              <td className="border p-2">
+                {editingId === p.id ? (
                   <input
-                    type="text"
                     value={editForm.cargo}
-                    onChange={(e) => handleEditChange("cargo", e.target.value)}
-                    className="w-full border px-2 py-1"
+                    onChange={(e) => setEditForm({ ...editForm, cargo: e.target.value })}
+                    className="w-full border p-1"
                   />
                 ) : (
-                  cargo.toUpperCase()
+                  p.cargo
                 )}
               </td>
-
-              <td className="border border-gray-300 px-4 py-2">
-                {editingId === id ? (
+              <td className="border p-2">
+                {editingId === p.id ? (
                   <input
-                    type="text"
                     value={editForm.contato}
-                    onChange={(e) => handleEditChange("contato", e.target.value)}
-                    className="w-full border px-2 py-1"
+                    onChange={(e) => setEditForm({ ...editForm, contato: e.target.value })}
+                    className="w-full border p-1"
                   />
                 ) : (
-                  (contato || "*").toUpperCase()
+                  p.contato
                 )}
               </td>
-
-              <td className="border border-gray-300 px-4 py-2 text-center space-x-2">
-                {editingId === id ? (
-                  <>
-                    <button
-                      onClick={saveEditing}
-                      className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 mr-2"
-                    >
-                      Salvar
-                    </button>
-                    <button
-                      onClick={cancelEditing}
-                      className="bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700"
-                    >
-                      Cancelar
-                    </button>
-                  </>
+              <td className="border p-2 text-center space-x-2">
+                {editingId === p.id ? (
+                  <button
+                    onClick={saveEditing}
+                    className="text-green-600 hover:underline"
+                  >
+                    Salvar
+                  </button>
                 ) : (
-                  <>
-                    <button
-                      onClick={() => startEditing({ id, nome, cpf, cargo, contato })}
-                      className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 mr-2"
-                    >
-                      Editar
-                    </button>
-                    <button
-                      onClick={() => deletePessoa(id)}
-                      className="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
-                    >
-                      Excluir
-                    </button>
-                  </>
+                  <button
+                    onClick={() => startEditing(p)}
+                    className="text-blue-600 hover:underline"
+                  >
+                    Editar
+                  </button>
                 )}
+                <button
+                  onClick={() => deletePessoa(p.id)}
+                  className="text-red-600 hover:underline"
+                >
+                  Excluir
+                </button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-
-      <div className="mt-6 space-y-3">
-        <h2 className="font-semibold">Adicionar nova pessoa</h2>
-        <div className="grid grid-cols-4 gap-4">
-          <input
-            type="text"
-            placeholder="Nome (obrigatório)"
-            value={newPessoa.nome}
-            onChange={(e) => setNewPessoa((old) => ({ ...old, nome: e.target.value }))}
-            className="border px-3 py-2 rounded"
-          />
-          <input
-            type="text"
-            placeholder="CPF (use * se não tiver)"
-            value={newPessoa.cpf}
-            onChange={(e) => setNewPessoa((old) => ({ ...old, cpf: e.target.value }))}
-            className="border px-3 py-2 rounded"
-          />
-          <input
-            type="text"
-            placeholder="Cargo (use * se não tiver)"
-            value={newPessoa.cargo}
-            onChange={(e) => setNewPessoa((old) => ({ ...old, cargo: e.target.value }))}
-            className="border px-3 py-2 rounded"
-          />
-          <input
-            type="text"
-            placeholder="Contato (use * se não tiver)"
-            value={newPessoa.contato}
-            onChange={(e) => setNewPessoa((old) => ({ ...old, contato: e.target.value }))}
-            className="border px-3 py-2 rounded"
-          />
-        </div>
-        <button
-          onClick={addPessoa}
-          className="mt-2 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-        >
-          Adicionar
-        </button>
-      </div>
     </div>
   );
 }
