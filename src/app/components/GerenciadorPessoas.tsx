@@ -1,5 +1,6 @@
 "use client";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { supabase } from "../lib/supabase"; // Certifique-se de que esse caminho está correto
 
 type Pessoa = {
   id: number;
@@ -9,19 +10,8 @@ type Pessoa = {
   contato?: string;
 };
 
-const initialPessoas: Pessoa[] = [
-  { id: 1, nome: "", cpf: "", cargo: "", contato: "" },
-  
-];
-
-// Função para gerar um novo ID único (com base no maior ID atual + 1)
-function gerarNovoId(pessoas: Pessoa[]): number {
-  if (pessoas.length === 0) return 1;
-  return Math.max(...pessoas.map(p => p.id)) + 1;
-}
-
 export default function TabelaSupabase() {
-  const [pessoas, setPessoas] = useState<Pessoa[]>(initialPessoas);
+  const [pessoas, setPessoas] = useState<Pessoa[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<Omit<Pessoa, "id">>({
     nome: "",
@@ -39,7 +29,20 @@ export default function TabelaSupabase() {
 
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Ordena e transforma em maiúsculas para filtro e exibição
+  // Carregar dados do Supabase ao iniciar
+  useEffect(() => {
+    async function carregarPessoas() {
+      const { data, error } = await supabase.from("pessoas").select("*").order("nome");
+      if (error) {
+        console.error("Erro ao carregar pessoas:", error.message);
+      } else {
+        setPessoas(data || []);
+      }
+    }
+
+    carregarPessoas();
+  }, []);
+
   const pessoasOrdenadas = useMemo(() => {
     return [...pessoas]
       .map((p) => ({
@@ -52,7 +55,6 @@ export default function TabelaSupabase() {
       .sort((a, b) => a.nome.localeCompare(b.nome));
   }, [pessoas]);
 
-  // Lista filtrada pela busca
   const pessoasFiltradas = pessoasOrdenadas.filter(({ nome, cpf, cargo, contato }) => {
     const termo = searchTerm.toUpperCase();
     return nome.includes(termo) || cpf.includes(termo) || cargo.includes(termo) || contato.includes(termo);
@@ -72,50 +74,62 @@ export default function TabelaSupabase() {
     setEditingId(null);
   }
 
-  function saveEditing() {
+  async function saveEditing() {
     if (editingId === null) return;
 
-    setPessoas((old) =>
-      old.map((p) =>
-        p.id === editingId
-          ? {
-            ...p,
-            nome: editForm.nome.trim() || p.nome,
-            cpf: editForm.cpf.trim() || "*",
-            cargo: editForm.cargo.trim() || "*",
-            contato: (editForm.contato ?? "").trim() || "*",
-          }
-          : p
-      )
-    );
-    setEditingId(null);
+    const atualizada = {
+      nome: editForm.nome.trim(),
+      cpf: editForm.cpf.trim() || "*",
+      cargo: editForm.cargo.trim() || "*",
+      contato: (editForm.contato ?? "").trim() || "*",
+    };
+
+    const { error } = await supabase
+      .from("pessoas")
+      .update(atualizada)
+      .eq("id", editingId);
+
+    if (error) {
+      console.error("Erro ao salvar edição:", error.message);
+    } else {
+      setPessoas((old) =>
+        old.map((p) => (p.id === editingId ? { ...p, ...atualizada } : p))
+      );
+      setEditingId(null);
+    }
   }
 
   function handleEditChange(field: keyof Omit<Pessoa, "id">, value: string) {
     setEditForm((old) => ({ ...old, [field]: value }));
   }
 
-  function addPessoa() {
+  async function addPessoa() {
     if (!newPessoa.nome.trim()) return;
 
-    const novoId = gerarNovoId(pessoas);
+    const nova = {
+      nome: newPessoa.nome.trim(),
+      cpf: newPessoa.cpf.trim() || "*",
+      cargo: newPessoa.cargo.trim() || "*",
+      contato: (newPessoa.contato ?? "").trim() || "*",
+    };
 
-    setPessoas((old) => [
-      ...old,
-      {
-        id: novoId,
-        nome: newPessoa.nome.trim(),
-        cpf: newPessoa.cpf.trim() || "*",
-        cargo: newPessoa.cargo.trim() || "*",
-        contato: (newPessoa.contato ?? "").trim() || "*",
-      },
-    ]);
-    setNewPessoa({ nome: "", cpf: "", cargo: "", contato: "" });
+    const { data, error } = await supabase.from("pessoas").insert([nova]).select();
+    if (error) {
+      console.error("Erro ao adicionar pessoa:", error.message);
+    } else {
+      setPessoas((old) => [...old, data![0]]);
+      setNewPessoa({ nome: "", cpf: "", cargo: "", contato: "" });
+    }
   }
 
-  function deletePessoa(id: number) {
+  async function deletePessoa(id: number) {
     const pessoa = pessoas.find((p) => p.id === id);
-    if (pessoa && confirm(`Tem certeza que deseja excluir ${pessoa.nome}?`)) {
+    if (!pessoa || !confirm(`Tem certeza que deseja excluir ${pessoa.nome}?`)) return;
+
+    const { error } = await supabase.from("pessoas").delete().eq("id", id);
+    if (error) {
+      console.error("Erro ao excluir pessoa:", error.message);
+    } else {
       setPessoas((old) => old.filter((p) => p.id !== id));
     }
   }
@@ -154,7 +168,7 @@ export default function TabelaSupabase() {
 
           {pessoasFiltradas.map(({ id, nome, cpf, cargo, contato }, index) => (
             <tr key={id} className="hover:bg-white transition-colors hover:text-black">
-              <td className="border border-gray-300 px-4 py-2 text-center">{index + 1}</td>{/* índice dinâmico */}
+              <td className="border border-gray-300 px-4 py-2 text-center">{index + 1}</td>
 
               <td className="border border-gray-300 px-4 py-2">
                 {editingId === id ? (
